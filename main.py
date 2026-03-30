@@ -4,40 +4,57 @@ import numpy as np
 import queue
 import threading
 import time
+import re
 from difflib import SequenceMatcher
 
-# =========================
-# CONFIG
-# =========================
+
 SCRIPT_FILE = "script.txt"
+CUELIST_FILE = "cuelist.txt"
 MODEL_SIZE = "base"   # tiny, base, small, medium
 SAMPLE_RATE = 16000
 CHUNK_DURATION = 3  # seconds of audio per inference
 HEADS_UP_WORDS = 50
 CONFIDENCE_THRESHOLD = 0.5
 
-# =========================
-# LOAD SCRIPT
-# =========================
 def load_script(file):
     with open(file, "r") as f:
         text = f.read()
 
     words = text.replace("\n", " ").split()
-    cue_indices = []
+    standby_markers = []
 
     for i, w in enumerate(words):
-        if "[CALL" in w:
-            cue_indices.append(i)
+        match = re.match(r"\[SB(\d+)\]", w)
+        if match:
+            standby_markers.append((i, int(match.group(1))))
 
-    return words, cue_indices
+    return words, standby_markers
+
+def load_cuelist(file):
+    cue_map = {}
+
+    with open(file, "r") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+
+            match = re.match(r"^([A-Za-z]*)(\d+)\s*:\s*(.+)$", line)
+            if not match:
+                continue
+
+            prefix, number, info = match.groups()
+            number = int(number)
+            label = f"{prefix}{number}" if prefix else str(number)
+            cue_map[number] = (label, info.strip())
+
+    return cue_map
 
 
-script_words, cue_indices = load_script(SCRIPT_FILE)
+script_words, standby_markers = load_script(SCRIPT_FILE)
+cue_map = load_cuelist(CUELIST_FILE)
 
-# =========================
-# AUDIO STREAM SETUP
-# =========================
+# setup audio stream
 audio_queue = queue.Queue()
 
 def audio_callback(indata, frames, time_info, status):
@@ -48,9 +65,7 @@ def record_audio():
         while True:
             time.sleep(0.1)
 
-# =========================
-# FUZZY MATCHING
-# =========================
+# match words
 def similarity(a, b):
     return SequenceMatcher(None, a, b).ratio()
 
@@ -59,7 +74,6 @@ def find_best_match(transcribed_words, script_words, last_pos):
     best_score = 0
     best_index = last_pos
 
-    # Only search near last known position for stability
     search_range = range(max(0, last_pos - 100), min(len(script_words), last_pos + 200))
 
     for i in search_range:
@@ -75,9 +89,7 @@ def find_best_match(transcribed_words, script_words, last_pos):
 
     return best_index, best_score
 
-# =========================
-# MAIN LOGIC
-# =========================
+
 def main():
     print("Loading Whisper model...")
     model = whisper.load_model(MODEL_SIZE)
@@ -91,51 +103,45 @@ def main():
     buffer = []
 
     while True:
+        # get audio chunk
         audio_chunk = []
-
-        # Collect audio for CHUNK_DURATION seconds
         start_time = time.time()
         while time.time() - start_time < CHUNK_DURATION:
             if not audio_queue.empty():
                 audio_chunk.append(audio_queue.get())
-
         if not audio_chunk:
             continue
-
         audio_np = np.concatenate(audio_chunk, axis=0).flatten()
 
-        # Transcribe
+        # transcribe
         result = model.transcribe(audio_np, fp16=False)
         text = result["text"].strip()
-
         if not text:
             continue
-
-        print(f"\nHeard: {text}")
-
+        print(f"Heard: {text}")
         transcribed_words = text.split()
 
-        # Find best match in script
+        # find best match in script
         new_pos, confidence = find_best_match(transcribed_words, script_words, current_position)
 
         if confidence > CONFIDENCE_THRESHOLD:
             current_position = new_pos
             print(f"Matched at word index {current_position} (confidence={confidence:.2f})")
 
-        # Check for upcoming cues
-        for cue_index in cue_indices:
-            if current_position < cue_index and (cue_index - current_position) <= HEADS_UP_WORDS:
-                if cue_index != last_warning_triggered:
+        # check for upcoming SB markers
+        for sb_index, sb_number in standby_markers:
+            if current_position < sb_index and (sb_index - current_position) <= HEADS_UP_WORDS:
+                if sb_index != last_warning_triggered:
                     print("\n==============================")
-                    print("⚠️ HEADS UP: Cue coming soon!")
-                    snippet_start = max(0, cue_index - HEADS_UP_WORDS)
-                    snippet = " ".join(script_words[snippet_start:cue_index])
-                    print(snippet)
-                    print("==============================\n")
-                    last_warning_triggered = cue_index
+                    print(f"WARNING: SB{sb_number} in {sb_index - current_position} words")
 
-# =========================
-# RUN
-# =========================
-if __name__ == "__main__":
-    main()
+                    if sb_number in cue_map:
+                        cue_label, cue_info = cue_map[sb_number]
+                        print(f"{cue_label}: {cue_info}")
+                    else:
+                        print(f"{sb_number}: not found in {CUELIST_FILE}")
+
+                    print("==============================\n")
+                    last_warning_triggered = sb_index
+
+main()
