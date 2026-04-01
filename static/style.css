@@ -1,0 +1,42 @@
+body {
+    margin: 0;
+    font-family: Arial;
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+}
+
+#top {
+    display: flex;
+    flex: 3;
+    height: 70vh
+}
+
+#script, #transcript {
+    flex: 1;
+    padding: 10px;
+    overflow-y: scroll;
+    border: 1px solid #ccc;
+}
+
+#script {
+    background: #f9f9f9;
+}
+
+#transcript {
+    background: #eef;
+}
+
+#bottom {
+    flex: 1;
+    border-top: 2px solid black;
+    padding: 10px;
+    background: #222;
+    color: #0f0;
+    font-size: 18px;
+    height: 30vh;
+}
+
+.highlight {
+    background: yellow;
+}
