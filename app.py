@@ -8,6 +8,9 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
  - convert image to text file
 """
 
+import eventlet
+eventlet.monkey_patch()
+
 from flask import Flask, render_template
 from flask_socketio import SocketIO
 from difflib import SequenceMatcher
@@ -24,7 +27,7 @@ CUELIST_FILE = "cuelist.txt"
 MODEL_SIZE = "tiny"
 SAMPLE_RATE = 16000
 
-CHUNK_DURATION = 1.2
+CHUNK_DURATION = 3
 OVERLAP_DURATION = 0.6
 AUDIO_GAIN = 5
 
@@ -228,5 +231,5 @@ def index():
 if __name__ == "__main__":
     threading.Thread(target=background_worker, daemon=True).start()
     print("Server starting on http://localhost:5000")
-    socketio.run(app, host="0.0.0.0", port=5000)
+    socketio.run(app, host="0.0.0.0", port=5000, debug=False)
     

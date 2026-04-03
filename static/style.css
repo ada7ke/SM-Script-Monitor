@@ -17,6 +17,7 @@ body {
     padding: 10px;
     overflow-y: scroll;
     border: 1px solid #ccc;
+    white-space: pre-wrap;
 }
 
 #script {
