@@ -174,3 +174,80 @@ body {
     border-radius: 4px;
     font-weight: 600;
 }
+
+.cue-marker {
+    cursor: help;
+    text-decoration: underline dotted rgba(31, 41, 55, 0.45);
+    text-underline-offset: 2px;
+}
+
+#cue-tooltip {
+    position: fixed;
+    z-index: 1000;
+    max-width: 320px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    background: #111827;
+    color: #f9fafb;
+    font-size: 13px;
+    line-height: 1.35;
+    box-shadow: 0 8px 20px rgba(17, 24, 39, 0.28);
+    pointer-events: none;
+}
+
+#cue-tooltip.hidden {
+    display: none;
+}
+
+#app-header {
+    flex: 0 0 auto;
+    margin-bottom: 16px;
+    padding: 8px 14px;
+}
+
+.header-grid {
+    display: grid;
+    grid-template-columns: 1fr auto 1fr;
+    align-items: center;
+    gap: 12px;
+}
+
+#app-title {
+    margin: 0;
+    font-size: 24px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    color: #111827;
+    text-align: center;
+}
+
+.monitor-toggle {
+    justify-self: end;
+    width: 44px;
+    height: 44px;
+    border: none;
+    border-radius: 10px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: background-color 120ms ease, transform 120ms ease;
+}
+
+.monitor-toggle svg {
+    width: 22px;
+    height: 22px;
+    fill: #ffffff;
+}
+
+.monitor-toggle.is-on {
+    background: #dc2626;
+}
+
+.monitor-toggle.is-off {
+    background: #6b7280;
+}
+
+.monitor-toggle:hover {
+    transform: translateY(-1px);
+}

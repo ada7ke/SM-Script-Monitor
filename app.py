@@ -18,7 +18,7 @@ import numpy as np
 import whisper, queue, threading, time, re, string
 
 app = Flask(__name__)
-socketio = SocketIO(app, cors_allowed_origins="*")
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 
 SCRIPT_FILE = "testscript.txt"
 CUELIST_FILE = "cuelist.txt"
@@ -100,19 +100,34 @@ cue_map = load_cuelist(CUELIST_FILE)
 
 # audio stream
 audio_queue = queue.Queue()
+monitoring_enabled = threading.Event()
+monitoring_enabled.set()
+
+
+def clear_audio_queue():
+    while not audio_queue.empty():
+        try:
+            audio_queue.get_nowait()
+        except queue.Empty:
+            break
 
 def audio_callback(indata, frames, time_info, status):
     audio_queue.put(indata.copy())
 
 def record_audio():
-    with sd.InputStream(
-        samplerate=SAMPLE_RATE,
-        channels=1,
-        dtype='float32',
-        callback=audio_callback
-    ):
-        while True:
-            time.sleep(0.05)
+    while True:
+        if not monitoring_enabled.is_set():
+            time.sleep(0.1)
+            continue
+
+        with sd.InputStream(
+            samplerate=SAMPLE_RATE,
+            channels=1,
+            dtype='float32',
+            callback=audio_callback
+        ):
+            while monitoring_enabled.is_set():
+                time.sleep(0.05)
 
 # match script
 def normalize(text):
@@ -158,11 +173,20 @@ def background_worker():
     overlap_samples = int(OVERLAP_DURATION * SAMPLE_RATE)
 
     while True:
+        if not monitoring_enabled.is_set():
+            rolling_audio = np.array([], dtype=np.float32)
+            time.sleep(0.1)
+            continue
+
         # accumulate audio
-        while len(rolling_audio) < chunk_samples:
+        while monitoring_enabled.is_set() and len(rolling_audio) < chunk_samples:
             if not audio_queue.empty():
                 new_audio = audio_queue.get().flatten().astype(np.float32)
                 rolling_audio = np.concatenate((rolling_audio, new_audio)).astype(np.float32)
+
+        if not monitoring_enabled.is_set():
+            rolling_audio = np.array([], dtype=np.float32)
+            continue
 
         audio_np = rolling_audio[:chunk_samples].astype(np.float32)
         rolling_audio = rolling_audio[chunk_samples - overlap_samples:].astype(np.float32)
@@ -183,13 +207,17 @@ def background_worker():
         if not text:
             continue
 
-        if len(text.split()) < 3:
-            continue
-
         print(f"Heard: {text}")
         socketio.emit("transcription", text)
 
         transcribed_words = text.split()
+
+        # Keep live monitor responsive by showing short chunks,
+        # but only run positional matching on longer phrases.
+        if len(transcribed_words) < 3:
+            socketio.emit("cue_update", "No upcoming cues...")
+            time.sleep(0.05)
+            continue
 
         # match
         new_pos, confidence = find_best_match(transcribed_words, script_words, current_position)
@@ -220,11 +248,38 @@ def background_worker():
 
         time.sleep(0.05)
 
+
+@socketio.on("connect")
+def handle_connect():
+    socketio.emit("monitoring_state", {"isMonitoring": monitoring_enabled.is_set()})
+
+
+@socketio.on("toggle_monitoring")
+def handle_toggle_monitoring():
+    if monitoring_enabled.is_set():
+        monitoring_enabled.clear()
+        clear_audio_queue()
+        socketio.emit("cue_update", "Monitoring paused")
+    else:
+        monitoring_enabled.set()
+        socketio.emit("cue_update", "Monitoring active")
+
+    socketio.emit("monitoring_state", {"isMonitoring": monitoring_enabled.is_set()})
+
 # routes
 @app.route("/")
 def index():
     cue_entries = [cue_map[key] for key in sorted(cue_map.keys())]
-    return render_template("index.html", script=full_script, cue_entries=cue_entries)
+    cue_lookup = {
+        str(key): {"label": cue_map[key][0], "info": cue_map[key][1]}
+        for key in cue_map
+    }
+    return render_template(
+        "index.html",
+        script=full_script,
+        cue_entries=cue_entries,
+        cue_lookup=cue_lookup
+    )
 
 # run
 if __name__ == "__main__":

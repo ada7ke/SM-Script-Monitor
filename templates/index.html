@@ -6,6 +6,18 @@
 </head>
 <body>
 
+<header id="app-header" class="card">
+    <div class="header-grid">
+        <div></div>
+        <h1 id="app-title">Stage Manager Script Monitor</h1>
+        <button id="monitor-toggle" type="button" class="monitor-toggle is-off" aria-pressed="false" title="Toggle monitoring">
+            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3zm5-3a1 1 0 1 0-2 0 3 3 0 0 1-6 0 1 1 0 1 0-2 0 5 5 0 0 0 4 4.9V20H9a1 1 0 1 0 0 2h6a1 1 0 1 0 0-2h-2v-3.1A5 5 0 0 0 17 12z"/>
+            </svg>
+        </button>
+    </div>
+</header>
+
 <div id="top">
     <div class="card">
         <div class="card-header">Script</div>
@@ -37,6 +49,7 @@
 </div>
 
 <script src="https://cdn.socket.io/4.0.1/socket.io.min.js"></script>
+<script id="cue-lookup-data" type="application/json">{{ cue_lookup|tojson }}</script>
 <script src="{{ url_for('static', filename='script.js') }}"></script>
 
 </body>
