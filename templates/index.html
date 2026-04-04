@@ -7,11 +7,34 @@
 <body>
 
 <div id="top">
-    <div id="script">{{ script }}</div>
-    <div id="transcript"></div>
+    <div class="card">
+        <div class="card-header">Script</div>
+        <div id="script" class="card-body">{{ script }}</div>
+    </div>
+    <div class="card">
+        <div class="card-header">Live Monitor</div>
+        <div id="transcript" class="card-body"></div>
+    </div>
 </div>
 
-<div id="bottom">No upcoming cues...</div>
+<div id="bottom">
+    <div class="card reminders-card">
+        <div class="card-header">Reminders</div>
+        <div id="terminal" class="card-body"></div>
+    </div>
+    <div class="card cue-list-card">
+        <div class="card-header">Cue List</div>
+        <div id="cue-list" class="card-body">
+            {% if cue_entries %}
+                {% for cue in cue_entries %}
+                    <div class="cue-item">{{ cue[0] }}: {{ cue[1] }}</div>
+                {% endfor %}
+            {% else %}
+                <div class="cue-item">No cues loaded.</div>
+            {% endif %}
+        </div>
+    </div>
+</div>
 
 <script src="https://cdn.socket.io/4.0.1/socket.io.min.js"></script>
 <script src="{{ url_for('static', filename='script.js') }}"></script>

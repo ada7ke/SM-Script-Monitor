@@ -8,8 +8,6 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
  - convert image to text file
 """
 
-import eventlet
-eventlet.monkey_patch()
 
 from flask import Flask, render_template
 from flask_socketio import SocketIO
@@ -22,14 +20,14 @@ import whisper, queue, threading, time, re, string
 app = Flask(__name__)
 socketio = SocketIO(app, cors_allowed_origins="*")
 
-SCRIPT_FILE = "YCTIWYscript.txt"
+SCRIPT_FILE = "testscript.txt"
 CUELIST_FILE = "cuelist.txt"
 MODEL_SIZE = "tiny"
 SAMPLE_RATE = 16000
 
-CHUNK_DURATION = 3
-OVERLAP_DURATION = 0.6
-AUDIO_GAIN = 5
+CHUNK_DURATION = 1
+OVERLAP_DURATION = 0.25
+AUDIO_GAIN = 0
 
 HEADS_UP_WORDS = 50
 CONFIDENCE_THRESHOLD = 0.55
@@ -225,11 +223,13 @@ def background_worker():
 # routes
 @app.route("/")
 def index():
-    return render_template("index.html", script=full_script)
+    cue_entries = [cue_map[key] for key in sorted(cue_map.keys())]
+    return render_template("index.html", script=full_script, cue_entries=cue_entries)
 
 # run
 if __name__ == "__main__":
     threading.Thread(target=background_worker, daemon=True).start()
-    print("Server starting on http://localhost:5000")
+    print("SERVER STARTING ON http://localhost:5000")
     socketio.run(app, host="0.0.0.0", port=5000, debug=False)
-    
+
+# wrap text: alt + z

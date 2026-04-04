@@ -2,9 +2,13 @@ const socket = io();
 
 const scriptDiv = document.getElementById("script");
 const transcriptDiv = document.getElementById("transcript");
-const bottomDiv = document.getElementById("bottom");
+const terminalDiv = document.getElementById("terminal");
+const cueListDiv = document.getElementById("cue-list");
 
 let scriptWords = scriptDiv.innerText.split(" ");
+
+// Initialize terminal status message
+terminalDiv.innerText = "No upcoming cues...";
 
 socket.on("transcription", (text) => {
     console.log("TRANSCRIPTION:", text);
@@ -17,6 +21,9 @@ socket.on("script_position", (pos) => {
 
     // rebuild with highlight
     let html = words.map((w, i) => {
+        if (i < pos) {
+            return `<span class="past">${w}</span>`;
+        }
         if (i >= pos && i < pos + 5) {
             return `<span class="highlight">${w}</span>`;
         }
@@ -27,9 +34,12 @@ socket.on("script_position", (pos) => {
 
     // auto scroll
     let percent = pos / words.length;
-    scriptDiv.scrollTop = scriptDiv.scrollHeight * percent;
+    let target = scriptDiv.scrollHeight * percent;
+    let offset = scriptDiv.clientHeight * 0.33;
+
+    scriptDiv.scrollTop = Math.max(0, target - offset);
 });
 
 socket.on("cue_update", (msg) => {
-    bottomDiv.innerText = msg;
+    terminalDiv.innerText = msg;
 });
