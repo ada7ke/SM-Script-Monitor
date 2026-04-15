@@ -6,6 +6,13 @@ const terminalDiv = document.getElementById("terminal");
 const cueListDiv = document.getElementById("cue-list");
 const monitorToggleBtn = document.getElementById("monitor-toggle");
 const cueLookupDataEl = document.getElementById("cue-lookup-data");
+const importDefaultBtn = document.getElementById("import-default");
+const importMenuToggleBtn = document.getElementById("import-menu-toggle");
+const importMenu = document.getElementById("import-menu");
+const scriptFileInput = document.getElementById("script-file-input");
+const cueFileInput = document.getElementById("cue-file-input");
+const selectedScriptNameEl = document.getElementById("selected-script-name");
+const selectedCueNameEl = document.getElementById("selected-cue-name");
 let cueLookup = {};
 
 if (cueLookupDataEl) {
@@ -19,6 +26,96 @@ if (cueLookupDataEl) {
 const markerRegex = /^\[(SB|Q)\d+\]$/i;
 let scriptWords = scriptDiv.innerText.split(/\s+/).filter(Boolean);
 let activeMarker = null;
+
+function renderCueList(cueEntries) {
+    if (!Array.isArray(cueEntries) || cueEntries.length === 0) {
+        cueListDiv.innerHTML = '<div class="cue-item">No cues loaded.</div>';
+        return;
+    }
+
+    cueListDiv.innerHTML = cueEntries
+        .map((cue) => `<div class="cue-item">${cue[0]}: ${cue[1]}</div>`)
+        .join("");
+}
+
+function setSelectedFileNames(scriptName, cueName) {
+    if (scriptName && selectedScriptNameEl) {
+        selectedScriptNameEl.innerText = scriptName;
+    }
+    if (cueName && selectedCueNameEl) {
+        selectedCueNameEl.innerText = cueName;
+    }
+}
+
+const toastContainer = document.createElement("div");
+toastContainer.id = "toast-container";
+document.body.appendChild(toastContainer);
+
+function showToast(message, type = "success") {
+    const toast = document.createElement("div");
+    toast.className = `toast ${type}`;
+    toast.innerText = message;
+    toastContainer.appendChild(toast);
+
+    requestAnimationFrame(() => {
+        toast.classList.add("show");
+    });
+
+    setTimeout(() => {
+        toast.classList.remove("show");
+        setTimeout(() => {
+            if (toast.parentElement) {
+                toast.parentElement.removeChild(toast);
+            }
+        }, 180);
+    }, 2200);
+}
+
+async function importTxtFile(file, importType) {
+    const formData = new FormData();
+    formData.append("file", file);
+    formData.append("import_type", importType);
+
+    try {
+        const response = await fetch("/import_txt", {
+            method: "POST",
+            body: formData
+        });
+
+        const payload = await response.json();
+
+        if (!response.ok || !payload.ok) {
+            throw new Error(payload.error || "Import failed.");
+        }
+
+        if (typeof payload.script === "string") {
+            scriptWords = payload.script.split(/\s+/).filter(Boolean);
+            renderScript(0);
+        }
+
+        cueLookup = payload.cue_lookup || {};
+        renderCueList(payload.cue_entries || []);
+        setSelectedFileNames(payload.current_script_name, payload.current_cuelist_name);
+        showToast(`${importType === "script" ? "Script" : "Cue list"} imported successfully.`, "success");
+    } catch (error) {
+        showToast(`Import error: ${error.message}`, "error");
+    }
+}
+
+function toggleImportMenu(forceOpen = null) {
+    const isOpen = !importMenu.classList.contains("hidden");
+    const shouldOpen = forceOpen === null ? !isOpen : forceOpen;
+    importMenu.classList.toggle("hidden", !shouldOpen);
+    importMenuToggleBtn.setAttribute("aria-expanded", String(shouldOpen));
+}
+
+function openImportDialog(importType) {
+    if (importType === "cue") {
+        cueFileInput.click();
+        return;
+    }
+    scriptFileInput.click();
+}
 
 const cueTooltip = document.createElement("div");
 cueTooltip.id = "cue-tooltip";
@@ -110,6 +207,46 @@ function updateMonitoringButton(isMonitoring) {
 monitorToggleBtn.addEventListener("click", () => {
     socket.emit("toggle_monitoring");
 });
+
+if (importDefaultBtn && importMenuToggleBtn && importMenu && scriptFileInput && cueFileInput) {
+    importMenuToggleBtn.addEventListener("click", () => {
+        toggleImportMenu();
+    });
+
+    importMenu.addEventListener("click", (event) => {
+        const menuItem = event.target.closest(".menu-item");
+        if (!menuItem) {
+            return;
+        }
+
+        const importType = menuItem.getAttribute("data-import-type");
+        toggleImportMenu(false);
+        openImportDialog(importType);
+    });
+
+    scriptFileInput.addEventListener("change", (event) => {
+        const file = event.target.files && event.target.files[0];
+        if (file) {
+            importTxtFile(file, "script");
+        }
+        scriptFileInput.value = "";
+    });
+
+    cueFileInput.addEventListener("change", (event) => {
+        const file = event.target.files && event.target.files[0];
+        if (file) {
+            importTxtFile(file, "cue");
+        }
+        cueFileInput.value = "";
+    });
+
+    document.addEventListener("click", (event) => {
+        const clickedInside = event.target.closest("#split-import");
+        if (!clickedInside) {
+            toggleImportMenu(false);
+        }
+    });
+}
 
 scriptDiv.addEventListener("mouseover", (event) => {
     const markerEl = event.target.closest(".cue-marker");

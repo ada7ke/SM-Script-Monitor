@@ -8,13 +8,31 @@
 
 <header id="app-header" class="card">
     <div class="header-grid">
-        <div></div>
+        <div class="header-left">
+            <div class="split-import" id="split-import">
+                <div id="import-default" class="import-btn import-main" aria-hidden="true">Import</div>
+                <button id="import-menu-toggle" type="button" class="import-btn import-arrow" aria-haspopup="true" aria-expanded="false" title="Choose import type">
+                    <span aria-hidden="true">▼</span>
+                </button>
+                <div id="import-menu" class="import-menu hidden" role="menu">
+                    <button type="button" class="menu-item" data-import-type="script" role="menuitem">Import Script File</button>
+                    <button type="button" class="menu-item" data-import-type="cue" role="menuitem">Import Cue List File</button>
+                </div>
+            </div>
+            <div id="selected-files" class="selected-files">
+                Script: <span id="selected-script-name">{{ current_script_name }}</span> | Cue List: <span id="selected-cue-name">{{ current_cuelist_name }}</span>
+            </div>
+            <input id="script-file-input" type="file" accept=".txt,text/plain" class="hidden-file-input">
+            <input id="cue-file-input" type="file" accept=".txt,text/plain" class="hidden-file-input">
+        </div>
         <h1 id="app-title">Stage Manager Script Monitor</h1>
-        <button id="monitor-toggle" type="button" class="monitor-toggle is-off" aria-pressed="false" title="Toggle monitoring">
-            <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-                <path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3zm5-3a1 1 0 1 0-2 0 3 3 0 0 1-6 0 1 1 0 1 0-2 0 5 5 0 0 0 4 4.9V20H9a1 1 0 1 0 0 2h6a1 1 0 1 0 0-2h-2v-3.1A5 5 0 0 0 17 12z"/>
-            </svg>
-        </button>
+        <div class="header-right">
+            <button id="monitor-toggle" type="button" class="monitor-toggle is-off" aria-pressed="false" title="Toggle monitoring">
+                <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                    <path d="M12 15a3 3 0 0 0 3-3V6a3 3 0 1 0-6 0v6a3 3 0 0 0 3 3zm5-3a1 1 0 1 0-2 0 3 3 0 0 1-6 0 1 1 0 1 0-2 0 5 5 0 0 0 4 4.9V20H9a1 1 0 1 0 0 2h6a1 1 0 1 0 0-2h-2v-3.1A5 5 0 0 0 17 12z"/>
+                </svg>
+            </button>
+        </div>
     </div>
 </header>
 

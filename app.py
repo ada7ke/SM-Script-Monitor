@@ -3,13 +3,11 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 """
  TODO:
- - add ui
  - cant find place warning
- - convert image to text file
 """
 
 
-from flask import Flask, render_template
+from flask import Flask, render_template, request, jsonify
 from flask_socketio import SocketIO
 from difflib import SequenceMatcher
 from scipy.signal import butter, lfilter
@@ -20,11 +18,11 @@ import whisper, queue, threading, time, re, string
 app = Flask(__name__)
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode="threading")
 
-SCRIPT_FILE = "testscript.txt"
-CUELIST_FILE = "cuelist.txt"
+SCRIPT_FILE = "testscript.txt" # CHANGE THIS TO YOUR SCRIPT FILE
+CUELIST_FILE = "cuelist.txt" # CHANGE THIS TO YOUR CUELIST FILE
+
 MODEL_SIZE = "tiny"
 SAMPLE_RATE = 16000
-
 CHUNK_DURATION = 1
 OVERLAP_DURATION = 0.25
 AUDIO_GAIN = 0
@@ -32,6 +30,11 @@ AUDIO_GAIN = 0
 HEADS_UP_WORDS = 50
 CONFIDENCE_THRESHOLD = 0.55
 TRANSCRIBE_LANGUAGE = "en"
+
+state_lock = threading.Lock()
+state_version = 0
+current_script_name = os.path.basename(SCRIPT_FILE)
+current_cuelist_name = os.path.basename(CUELIST_FILE)
 
 # audio processing
 def apply_gain(audio, db=AUDIO_GAIN):
@@ -61,10 +64,7 @@ def process_audio(audio):
     return audio.astype(np.float32)
 
 # load files
-def load_script(file):
-    with open(file, "r", encoding="utf-8", errors="ignore") as f:
-        text = f.read()
-
+def parse_script_text(text):
     words = text.replace("\n", " ").split()
     standby_markers = []
 
@@ -75,25 +75,42 @@ def load_script(file):
 
     return words, standby_markers, text
 
-def load_cuelist(file):
+def load_script(file):
+    with open(file, "r", encoding="utf-8", errors="ignore") as f:
+        text = f.read()
+    return parse_script_text(text)
+
+def parse_cuelist_text(text):
     cue_map = {}
 
-    with open(file, "r", encoding="utf-8", errors="ignore") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
+    for line in text.splitlines():
+        line = line.strip()
+        if not line:
+            continue
 
-            match = re.match(r"^([A-Za-z]*)(\d+)\s*:\s*(.+)$", line)
-            if not match:
-                continue
+        match = re.match(r"^([A-Za-z]*)(\d+)\s*:\s*(.+)$", line)
+        if not match:
+            continue
 
-            prefix, number, info = match.groups()
-            number = int(number)
-            label = f"{prefix}{number}" if prefix else str(number)
-            cue_map[number] = (label, info.strip())
+        prefix, number, info = match.groups()
+        number = int(number)
+        label = f"{prefix}{number}" if prefix else str(number)
+        cue_map[number] = (label, info.strip())
 
     return cue_map
+
+def load_cuelist(file):
+    with open(file, "r", encoding="utf-8", errors="ignore") as f:
+        text = f.read()
+    return parse_cuelist_text(text)
+
+def build_cue_payload(cues):
+    cue_entries = [cues[key] for key in sorted(cues.keys())]
+    cue_lookup = {
+        str(key): {"label": cues[key][0], "info": cues[key][1]}
+        for key in cues
+    }
+    return cue_entries, cue_lookup
 
 script_words, standby_markers, full_script = load_script(SCRIPT_FILE)
 cue_map = load_cuelist(CUELIST_FILE)
@@ -164,6 +181,7 @@ def background_worker():
 
     current_position = 0
     last_reminder = -1
+    seen_version = -1
 
     threading.Thread(target=record_audio, daemon=True).start()
 
@@ -177,6 +195,15 @@ def background_worker():
             rolling_audio = np.array([], dtype=np.float32)
             time.sleep(0.1)
             continue
+
+        with state_lock:
+            if seen_version != state_version:
+                current_position = 0
+                last_reminder = -1
+                seen_version = state_version
+            worker_script_words = script_words[:]
+            worker_standby_markers = standby_markers[:]
+            worker_cue_map = cue_map.copy()
 
         # accumulate audio
         while monitoring_enabled.is_set() and len(rolling_audio) < chunk_samples:
@@ -220,7 +247,7 @@ def background_worker():
             continue
 
         # match
-        new_pos, confidence = find_best_match(transcribed_words, script_words, current_position)
+        new_pos, confidence = find_best_match(transcribed_words, worker_script_words, current_position)
 
         if confidence > CONFIDENCE_THRESHOLD:
             if abs(new_pos - current_position) < 80:
@@ -232,13 +259,13 @@ def background_worker():
         # cues
         message = "No upcoming cues..."
 
-        for sb_index, sb_number in standby_markers:
+        for sb_index, sb_number in worker_standby_markers:
             if current_position < sb_index:
                 distance = sb_index - current_position
 
                 if distance <= HEADS_UP_WORDS:
-                    if sb_number in cue_map:
-                        cue_label, cue_info = cue_map[sb_number]
+                    if sb_number in worker_cue_map:
+                        cue_label, cue_info = worker_cue_map[sb_number]
                         message = f"Reminder: SB{sb_number} in {distance} words\n{cue_label}: {cue_info}"
                     else:
                         message = f"Reminder: SB{sb_number} in {distance} words\n(No cue info found)"
@@ -269,17 +296,75 @@ def handle_toggle_monitoring():
 # routes
 @app.route("/")
 def index():
-    cue_entries = [cue_map[key] for key in sorted(cue_map.keys())]
-    cue_lookup = {
-        str(key): {"label": cue_map[key][0], "info": cue_map[key][1]}
-        for key in cue_map
-    }
+    with state_lock:
+        current_script = full_script
+        cues_snapshot = cue_map.copy()
+        script_name = current_script_name
+        cuelist_name = current_cuelist_name
+
+    cue_entries, cue_lookup = build_cue_payload(cues_snapshot)
     return render_template(
         "index.html",
-        script=full_script,
+        script=current_script,
         cue_entries=cue_entries,
-        cue_lookup=cue_lookup
+        cue_lookup=cue_lookup,
+        current_script_name=script_name,
+        current_cuelist_name=cuelist_name
     )
+
+@app.route("/import_txt", methods=["POST"])
+def import_txt():
+    global script_words, standby_markers, full_script, cue_map
+    global current_script_name, current_cuelist_name, state_version
+
+    import_type = request.form.get("import_type", "").strip().lower()
+    uploaded = request.files.get("file")
+
+    if import_type not in {"script", "cue"}:
+        return jsonify({"ok": False, "error": "Invalid import type."}), 400
+
+    if not uploaded or not uploaded.filename:
+        return jsonify({"ok": False, "error": "No file selected."}), 400
+
+    if not uploaded.filename.lower().endswith(".txt"):
+        return jsonify({"ok": False, "error": "Only .txt files are supported."}), 400
+
+    text = uploaded.stream.read().decode("utf-8", errors="ignore")
+    if not text.strip():
+        return jsonify({"ok": False, "error": "The selected file is empty."}), 400
+
+    try:
+        with state_lock:
+            if import_type == "script":
+                new_words, new_standby_markers, new_full_script = parse_script_text(text)
+                script_words = new_words
+                standby_markers = new_standby_markers
+                full_script = new_full_script
+                current_script_name = os.path.basename(uploaded.filename)
+            else:
+                cue_map = parse_cuelist_text(text)
+                current_cuelist_name = os.path.basename(uploaded.filename)
+
+            state_version += 1
+
+            current_script = full_script
+            cues_snapshot = cue_map.copy()
+            script_name = current_script_name
+            cuelist_name = current_cuelist_name
+    except Exception as error:
+        return jsonify({"ok": False, "error": f"Import failed: {error}"}), 400
+
+    cue_entries, cue_lookup = build_cue_payload(cues_snapshot)
+
+    return jsonify({
+        "ok": True,
+        "import_type": import_type,
+        "script": current_script,
+        "cue_entries": cue_entries,
+        "cue_lookup": cue_lookup,
+        "current_script_name": script_name,
+        "current_cuelist_name": cuelist_name
+    })
 
 # run
 if __name__ == "__main__":
